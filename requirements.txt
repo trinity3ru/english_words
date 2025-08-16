@@ -1,0 +1,36 @@
+# Основные зависимости для AI-системы изучения английского языка
+
+# Telegram Bot API
+aiogram>=3.0.0
+
+# OpenAI API для анализа ответов
+openai==1.12.0
+
+# Google Sheets API
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.108.0
+
+# Планировщик задач
+APScheduler==3.10.4
+
+# Работа с базами данных
+# sqlite3 - встроенный модуль Python
+
+# Обработка данных
+pandas>=2.2.0
+
+# Логирование
+python-json-logger==2.0.7
+
+# Конфигурация
+python-dotenv==1.0.0
+
+# Тестирование
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Разработка
+black==23.11.0
+flake8==6.1.0

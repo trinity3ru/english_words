@@ -1,0 +1,110 @@
+# Временные файлы и папки
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Скрытые файлы и папки
+.*
+!.gitignore
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Виртуальные окружения
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Логи
+*.log
+logs/
+log/
+
+# База данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Кэш
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Временные тестовые файлы
+test_*.py
+debug_*.py
+check_*.py
+
+# Конфигурационные файлы с секретами
+config/local.py
+config/production.py
+secrets.json
+credentials.json
+
+# Системные файлы
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Архивы
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Документы
+*.doc
+*.docx
+*.pdf
+*.ppt
+*.pptx
+*.xls
+*.xlsx
