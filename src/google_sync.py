@@ -6,9 +6,10 @@
     с локальной SQLite базой данных.
     
 Функции:
-    - Чтение фраз из Google Sheets
-    - Синхронизация с SQLite БД
+    - Чтение фраз из Google Sheets (включая столбец Progress)
+    - Синхронизация с SQLite БД с учетом прогресса изучения
     - Обработка изменений в таблице
+    - Автоматическое исключение изученных фраз (3+ баллов)
 """
 
 import os
@@ -31,22 +32,23 @@ logger = logging.getLogger(__name__)
 class GoogleSheetsSync:
     """Класс для синхронизации с Google Sheets."""
     
-    def __init__(self, credentials_path: str, spreadsheet_id: str, database_manager: DatabaseManager):
+    def __init__(self, credentials_path: str = None, spreadsheet_id: str = None, database_manager: DatabaseManager = None):
         """
         Инициализация синхронизатора.
         
         Args:
-            credentials_path: Путь к JSON-файлу с учетными данными
-            spreadsheet_id: ID таблицы Google Sheets
-            database_manager: Менеджер базы данных SQLite
+            credentials_path: Путь к JSON-файлу с учетными данными (опционально)
+            spreadsheet_id: ID таблицы Google Sheets (опционально)
+            database_manager: Менеджер базы данных SQLite (опционально)
         """
         self.credentials_path = credentials_path
         self.spreadsheet_id = spreadsheet_id
         self.database_manager = database_manager
         self.service = None
         
-        # Настройка аутентификации
-        self._setup_authentication()
+        # Настройка аутентификации только если указаны учетные данные
+        if credentials_path and spreadsheet_id:
+            self._setup_authentication()
     
     def _setup_authentication(self) -> None:
         """Настройка аутентификации для Google Sheets API."""
@@ -54,7 +56,7 @@ class GoogleSheetsSync:
             # Загружаем учетные данные из JSON-файла
             credentials = service_account.Credentials.from_service_account_file(
                 self.credentials_path,
-                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly', 'https://www.googleapis.com/auth/spreadsheets']
             )
             
             # Создаем сервис для работы с Google Sheets
@@ -65,12 +67,12 @@ class GoogleSheetsSync:
             logger.error(f"Ошибка настройки аутентификации: {e}")
             raise
     
-    def get_phrases_from_sheets(self, range_name: str = "english!A:D") -> List[Dict]:
+    def get_phrases_from_sheets(self, range_name: str = "english!A:E") -> List[Dict]:
         """
         Получение фраз из Google Sheets.
         
         Args:
-            range_name: Диапазон ячеек для чтения (по умолчанию вкладка 'english')
+            range_name: Диапазон ячеек для чтения (по умолчанию вкладка 'english' включая столбец E)
             
         Returns:
             Список словарей с данными фраз
@@ -99,11 +101,23 @@ class GoogleSheetsSync:
                     phrase_data = {
                         'row_number': i,
                         'date': row[0] if len(row) > 0 else None,
-                        'english_text': row[1] if len(row) > 1 else None,
-                        'russian_text': row[2] if len(row) > 2 else None,
-                        'example': row[3] if len(row) > 3 else None,
+                        'english_text': row[1].strip() if len(row) > 1 else None,  # Убираем лишние символы
+                        'russian_text': row[2].strip() if len(row) > 2 else None,  # Убираем лишние символы
+                        'example': row[3].strip() if len(row) > 3 else None,  # Убираем лишние символы
                         'progress': row[4] if len(row) > 4 else None
                     }
+                    
+                    # Обрабатываем прогресс из столбца E
+                    if phrase_data['progress']:
+                        try:
+                            # Пытаемся преобразовать прогресс в число
+                            progress_value = float(phrase_data['progress'])
+                            phrase_data['progress_score'] = progress_value
+                        except (ValueError, TypeError):
+                            # Если не число, устанавливаем 0
+                            phrase_data['progress_score'] = 0.0
+                    else:
+                        phrase_data['progress_score'] = 0.0
                     
                     # Проверяем, что основные поля заполнены
                     if phrase_data['english_text'] and phrase_data['russian_text']:
@@ -152,14 +166,19 @@ class GoogleSheetsSync:
                     updated_count += 1
                     logger.debug(f"Обновлена фраза: {english_text}")
                 else:
-                    # Добавляем новую фразу
-                    phrase_id = self.database_manager.add_phrase(
-                        english_text=english_text,
-                        russian_text=russian_text,
-                        difficulty=difficulty
-                    )
+                    # Добавляем новую фразу напрямую в БД
+                    phrase_id = self._add_phrase_to_db(english_text, russian_text, difficulty)
                     added_count += 1
                     logger.debug(f"Добавлена новая фраза (ID: {phrase_id}): {english_text}")
+                
+                # Обновляем прогресс фразы из Google Sheets
+                if phrase_data.get('progress_score', 0) > 0:
+                    try:
+                        phrase_id = existing_phrase['id'] if existing_phrase else phrase_id
+                        self._update_phrase_progress_in_db(phrase_id, phrase_data['progress_score'])
+                        logger.debug(f"Обновлен прогресс фразы {phrase_id}: {phrase_data['progress_score']}")
+                    except Exception as e:
+                        logger.warning(f"Не удалось обновить прогресс фразы {english_text}: {e}")
                     
             except Exception as e:
                 error_count += 1
@@ -200,7 +219,10 @@ class GoogleSheetsSync:
         try:
             # Простой поиск по точному совпадению
             # В будущем можно улучшить поиск (например, игнорировать регистр)
-            with sqlite3.connect(self.database_manager.db_path) as conn:
+            from config.config import DATABASE_PATH
+            db_path = DATABASE_PATH
+            
+            with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT id, english_text, russian_text, difficulty FROM phrases WHERE english_text = ?",
@@ -231,7 +253,10 @@ class GoogleSheetsSync:
             difficulty: Новая сложность
         """
         try:
-            with sqlite3.connect(self.database_manager.db_path) as conn:
+            from config.config import DATABASE_PATH
+            db_path = DATABASE_PATH
+            
+            with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "UPDATE phrases SET russian_text = ?, difficulty = ? WHERE id = ?",
@@ -252,8 +277,8 @@ class GoogleSheetsSync:
         logger.info("Начинаем полную синхронизацию с Google Sheets")
         
         try:
-            # Получаем фразы из Google Sheets
-            phrases = self.get_phrases_from_sheets()
+            # Получаем фразы из Google Sheets с листа english
+            phrases = self.get_phrases_from_sheets("english!A:E")
             
             if not phrases:
                 logger.warning("Нет фраз для синхронизации")
@@ -284,13 +309,17 @@ class GoogleSheetsSync:
             Словарь со статусом синхронизации
         """
         try:
-            # Получаем количество фраз в Google Sheets
-            sheets_phrases = self.get_phrases_from_sheets()
+            # Получаем количество фраз в Google Sheets с листа english
+            sheets_phrases = self.get_phrases_from_sheets("english!A:E")
             sheets_count = len(sheets_phrases)
             
-            # Получаем количество фраз в базе данных
-            db_stats = self.database_manager.get_statistics(user_id=1)
-            db_count = db_stats['total_phrases']
+            # Получаем количество фраз в базе данных напрямую
+            from config.config import DATABASE_PATH
+            db_path = DATABASE_PATH
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM phrases")
+                db_count = cursor.fetchone()[0]
             
             # Вычисляем процент синхронизации
             sync_percentage = (db_count / sheets_count * 100) if sheets_count > 0 else 0
@@ -305,20 +334,194 @@ class GoogleSheetsSync:
             
         except Exception as e:
             logger.error(f"Ошибка получения статуса синхронизации: {e}")
+            # Возвращаем безопасный результат с ошибкой
             return {
-                'error': str(e),
-                'status': 'error'
+                'sheets_count': 0,
+                'database_count': 0,
+                'sync_percentage': 0.0,
+                'last_sync': datetime.now().isoformat(),
+                'status': 'error',
+                'error': str(e)
             }
+
+    def update_phrase_progress_in_sheets(self, phrase_id: int, new_progress: float) -> None:
+        """
+        Обновляет прогресс фразы в Google Sheets в реальном времени.
+        
+        Args:
+            phrase_id: ID фразы для обновления
+            new_progress: Новый общий прогресс фразы
+        """
+        logger.info(f"[START_FUNCTION][update_phrase_progress_in_sheets] Обновление прогресса фразы {phrase_id} в Google Sheets: {new_progress}")
+        
+        try:
+            # Используем переменные окружения
+            from config.config import GOOGLE_SHEETS_CREDENTIALS_FILE, GOOGLE_SHEETS_SPREADSHEET_ID
+            
+            credentials_path = GOOGLE_SHEETS_CREDENTIALS_FILE
+            spreadsheet_id = GOOGLE_SHEETS_SPREADSHEET_ID
+            
+            # Отладочная информация
+            logger.info(f"[DEBUG] credentials_path: {credentials_path}")
+            logger.info(f"[DEBUG] spreadsheet_id: {spreadsheet_id}")
+            
+            # Если сервис не настроен, настраиваем его
+            if not self.service:
+                self.credentials_path = credentials_path
+                self.spreadsheet_id = spreadsheet_id
+                self._setup_authentication()
+            
+            # Получаем данные фразы из БД для поиска в Google Sheets
+            phrase_data = self._get_phrase_by_id(phrase_id)
+            if not phrase_data:
+                logger.warning(f"[WARNING][update_phrase_progress_in_sheets] Фраза {phrase_id} не найдена в БД")
+                return
+            
+            # Получаем все фразы из Google Sheets
+            sheets_phrases = self.get_phrases_from_sheets("english!A:E")
+            
+            logger.info(f"[DEBUG] Найдено {len(sheets_phrases)} фраз в Google Sheets")
+            logger.info(f"[DEBUG] Ищем фразу: '{phrase_data['english_text'][:50]}...'")
+            
+            # Ищем соответствующую фразу в Google Sheets
+            target_row = None
+            for i, phrase in enumerate(sheets_phrases):
+                if phrase.get('english_text') == phrase_data['english_text']:
+                    target_row = i + 2  # +2 потому что Google Sheets начинается с 1, а мы с 0
+                    logger.info(f"[DEBUG] Найдена фраза в строке {target_row}")
+                    break
+            
+            if target_row is None:
+                logger.warning(f"[WARNING][update_phrase_progress_in_sheets] Фраза '{phrase_data['english_text']}' не найдена в Google Sheets")
+                # Выводим первые 3 фразы для отладки
+                logger.info(f"[DEBUG] Первые 3 фразы в Google Sheets:")
+                for i, p in enumerate(sheets_phrases[:3]):
+                    logger.info(f"[DEBUG] {i+1}: {p.get('english_text', 'N/A')[:50]}...")
+                return
+            
+            # Обновляем прогресс в Google Sheets (столбец E, индекс 4)
+            # Формируем диапазон для обновления (вкладка english, столбец E, строка target_row)
+            range_name = f"english!E{target_row}"
+            
+            logger.info(f"[DEBUG] Обновляем диапазон: {range_name} значением: {new_progress}")
+            logger.info(f"[DEBUG] Записываем на лист 'english', столбец E, строка {target_row}")
+            
+            # Обновляем значение
+            update_result = self.service.spreadsheets().values().update(
+                spreadsheetId=self.spreadsheet_id,
+                range=range_name,
+                valueInputOption='RAW',
+                body={'values': [[new_progress]]}
+            ).execute()
+            
+            logger.info(f"[DEBUG] Результат обновления: {update_result}")
+            logger.info(f"[END_FUNCTION][update_phrase_progress_in_sheets] Google Sheets обновлен: лист 'english', строка {target_row}, столбец E, прогресс {new_progress}")
+            
+        except Exception as e:
+            logger.error(f"[ERROR][update_phrase_progress_in_sheets] Ошибка обновления Google Sheets: {e}")
+            raise e
+    
+    def _get_phrase_by_id(self, phrase_id: int) -> Optional[Dict]:
+        """
+        Получает данные фразы по ID из базы данных.
+        
+        Args:
+            phrase_id: ID фразы
+            
+        Returns:
+            Словарь с данными фразы или None
+        """
+        try:
+            # Используем тот же путь к БД что и в других методах
+            from config.config import DATABASE_PATH
+            db_path = DATABASE_PATH
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, english_text, russian_text, difficulty
+                    FROM phrases
+                    WHERE id = ?
+                """, (phrase_id,))
+                
+                result = cursor.fetchone()
+                
+                if result:
+                    return {
+                        'id': result[0],
+                        'english_text': result[1],
+                        'russian_text': result[2],
+                        'difficulty': result[3]
+                    }
+                return None
+                
+        except Exception as e:
+            logger.error(f"[ERROR][_get_phrase_by_id] Ошибка получения фразы {phrase_id}: {e}")
+            return None
+
+    def _update_phrase_progress_in_db(self, phrase_id: int, progress_score: float) -> None:
+        """
+        Обновляет прогресс фразы в базе данных.
+        
+        Args:
+            phrase_id: ID фразы
+            progress_score: Новый прогресс
+        """
+        try:
+            from config.config import DATABASE_PATH
+            db_path = DATABASE_PATH
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE phrases 
+                    SET total_progress_score = ?, is_learned = ?
+                    WHERE id = ?
+                """, (progress_score, progress_score >= 3.0, phrase_id))
+                conn.commit()
+                
+        except Exception as e:
+            logger.error(f"Ошибка обновления прогресса фразы {phrase_id}: {e}")
+            raise
+    
+    def _add_phrase_to_db(self, english_text: str, russian_text: str, difficulty: str) -> int:
+        """
+        Добавляет новую фразу в базу данных.
+        
+        Args:
+            english_text: Английский текст
+            russian_text: Русский перевод
+            difficulty: Сложность
+            
+        Returns:
+            ID добавленной фразы
+        """
+        try:
+            from config.config import DATABASE_PATH
+            db_path = DATABASE_PATH
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO phrases (english_text, russian_text, difficulty, total_progress_score, is_learned)
+                    VALUES (?, ?, ?, 0.0, 0)
+                """, (english_text, russian_text, difficulty))
+                conn.commit()
+                return cursor.lastrowid
+                
+        except Exception as e:
+            logger.error(f"Ошибка добавления фразы: {e}")
+            raise
 
 
 def main():
     """Тестовая функция для проверки работы модуля."""
     try:
-        # Путь к JSON-файлу с учетными данными
-        credentials_path = "python-datalens-f6500fa9f949.json"
+        # Используем переменные окружения
+        from config.config import GOOGLE_SHEETS_CREDENTIALS_FILE, GOOGLE_SHEETS_SPREADSHEET_ID
         
-        # ID таблицы Google Sheets
-        spreadsheet_id = "1asOMYirFTteYzP8ffMob3u3IGZryiMoeD7OQSbm0_iw"
+        credentials_path = GOOGLE_SHEETS_CREDENTIALS_FILE
+        spreadsheet_id = GOOGLE_SHEETS_SPREADSHEET_ID
         
         # Создаем менеджер базы данных
         db_manager = DatabaseManager()

@@ -16,8 +16,10 @@
     - add_phrase(): Добавляет новую фразу в БД
     - get_random_phrase(): Получает случайную фразу для изучения
     - update_progress(): Обновляет прогресс пользователя
+    - update_phrase_progress(): Обновляет общий прогресс изучения фразы
     - get_statistics(): Получает статистику обучения
     - get_learning_progress(): Получает прогресс по конкретной фразе
+    - get_learned_phrases_stats(): Получает статистику изученных фраз
 
 Константы:
     - DATABASE_NAME: Имя файла базы данных
@@ -97,7 +99,9 @@ class DatabaseManager:
                         difficulty TEXT DEFAULT 'medium',
                         context TEXT DEFAULT '',
                         date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        is_active BOOLEAN DEFAULT 1
+                        is_active BOOLEAN DEFAULT 1,
+                        is_learned BOOLEAN DEFAULT 0,
+                        total_progress_score REAL DEFAULT 0.0
                     )
                 """)
                 
@@ -345,6 +349,136 @@ class DatabaseManager:
             raise
     # endregion FUNCTION update_progress
     
+    # region FUNCTION update_phrase_progress
+    # CONTRACT
+    # Args:
+    #   - phrase_id: ID фразы для обновления прогресса
+    #   - score: Новый балл для добавления к общему прогрессу
+    # Returns:
+    #   - bool: True если фраза стала изученной
+    # Side Effects:
+    #   - Обновляет total_progress_score и is_learned в таблице phrases
+    # Raises:
+    #   - sqlite3.Error: при ошибках обновления БД
+    # Tests:
+    #   - score=1.0, total_progress=2.0: фраза становится изученной (3.0)
+    #   - score=0.5, total_progress=1.0: фраза остается в изучении (1.5)
+    
+    def update_phrase_progress(self, phrase_id: int, score: float) -> bool:
+        """
+        Обновляет общий прогресс изучения фразы.
+        
+        Args:
+            phrase_id: ID фразы
+            score: Новый балл для добавления
+            
+        Returns:
+            True если фраза стала изученной (достигла порога)
+        """
+        logger.info(f"[START_FUNCTION][update_phrase_progress] Обновление прогресса фразы {phrase_id}, балл: {score}")
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Получаем текущий прогресс
+                cursor.execute(
+                    "SELECT total_progress_score, is_learned FROM phrases WHERE id = ?",
+                    (phrase_id,)
+                )
+                result = cursor.fetchone()
+                
+                if not result:
+                    logger.warning(f"[WARNING][update_phrase_progress] Фраза {phrase_id} не найдена")
+                    return False
+                
+                current_progress, is_learned = result
+                
+                # Если фраза уже изучена, не обновляем
+                if is_learned:
+                    logger.info(f"[INFO][update_phrase_progress] Фраза {phrase_id} уже изучена")
+                    return True
+                
+                # Добавляем новый балл к общему прогрессу
+                new_total_progress = current_progress + score
+                
+                # Проверяем, достиг ли прогресс порога изучения
+                from config.config import LEARNED_SCORE_THRESHOLD
+                became_learned = new_total_progress >= LEARNED_SCORE_THRESHOLD
+                
+                # Обновляем прогресс и статус изучения
+                cursor.execute(
+                    "UPDATE phrases SET total_progress_score = ?, is_learned = ? WHERE id = ?",
+                    (new_total_progress, became_learned, phrase_id)
+                )
+                
+                conn.commit()
+                
+                if became_learned:
+                    logger.info(f"[INFO][update_phrase_progress] Фраза {phrase_id} стала изученной! Прогресс: {new_total_progress}")
+                else:
+                    logger.info(f"[INFO][update_phrase_progress] Прогресс фразы {phrase_id}: {new_total_progress}")
+                
+                logger.info(f"[END_FUNCTION][update_phrase_progress] Прогресс фразы {phrase_id} обновлен")
+                return became_learned
+                
+        except sqlite3.Error as e:
+            logger.error(f"[ERROR][update_phrase_progress] Ошибка обновления прогресса фразы {phrase_id}: {e}")
+            raise
+    # endregion FUNCTION update_phrase_progress
+    
+    # region FUNCTION get_phrase_progress
+    # CONTRACT
+    # Args:
+    #   - phrase_id: ID фразы
+    # Returns:
+    #   - float: Текущий прогресс фразы (total_progress_score)
+    # Side Effects:
+    #   - Нет
+    # Raises:
+    #   - sqlite3.Error: при ошибках запроса к БД
+    # Tests:
+    #   - phrase_id валидный: возвращает текущий прогресс
+    #   - phrase_id несуществующий: возвращает 0.0
+    
+    def get_phrase_progress(self, phrase_id: int) -> float:
+        """
+        Получает текущий прогресс изучения фразы.
+        
+        Args:
+            phrase_id: ID фразы
+            
+        Returns:
+            Текущий прогресс фразы (total_progress_score)
+        """
+        logger.info(f"[START_FUNCTION][get_phrase_progress] Получение прогресса фразы {phrase_id}")
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT total_progress_score
+                    FROM phrases
+                    WHERE id = ?
+                """, (phrase_id,))
+                
+                result = cursor.fetchone()
+                
+                if result:
+                    progress = result[0] or 0.0
+                    logger.info(f"[END_FUNCTION][get_phrase_progress] Прогресс фразы {phrase_id}: {progress}")
+                    return progress
+                else:
+                    logger.warning(f"[WARNING][get_phrase_progress] Фраза {phrase_id} не найдена")
+                    return 0.0
+                    
+        except sqlite3.Error as e:
+            logger.error(f"[ERROR][get_phrase_progress] Ошибка получения прогресса: {e}")
+            return 0.0
+    
+    # endregion FUNCTION get_phrase_progress
+    
     # region FUNCTION get_statistics
     # CONTRACT
     # Args:
@@ -496,25 +630,38 @@ class DatabaseManager:
     #   - БД содержит фразы: возвращает список фраз
     #   - БД пуста: возвращает пустой список
     
-    def get_all_phrases(self) -> List[Dict]:
+    def get_all_phrases(self, include_learned: bool = False) -> List[Dict]:
         """
-        Получает все активные фразы из базы данных.
+        Получает фразы из базы данных.
         
+        Args:
+            include_learned: Включать ли изученные фразы (по умолчанию False)
+            
         Returns:
             Список словарей с информацией о фразах
         """
-        logger.info("[START_FUNCTION][get_all_phrases] Получение всех активных фраз")
+        logger.info(f"[START_FUNCTION][get_all_phrases] Получение фраз, изученные: {include_learned}")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                cursor.execute("""
-                    SELECT id, english_text, russian_text, difficulty
-                    FROM phrases
-                    WHERE is_active = 1
-                    ORDER BY id
-                """)
+                if include_learned:
+                    # Получаем все фразы, включая изученные
+                    cursor.execute("""
+                        SELECT id, english_text, russian_text, is_learned, total_progress_score
+                        FROM phrases
+                        WHERE is_active = 1
+                        ORDER BY id
+                    """)
+                else:
+                    # Получаем только не изученные фразы
+                    cursor.execute("""
+                        SELECT id, english_text, russian_text, is_learned, total_progress_score
+                        FROM phrases
+                        WHERE is_active = 1 AND is_learned = 0
+                        ORDER BY id
+                    """)
                 
                 results = cursor.fetchall()
                 
@@ -523,7 +670,9 @@ class DatabaseManager:
                     phrase = {
                         'id': row[0],
                         'phrase': row[1],  # english_text
-                        'context': row[2] if row[2] else ''  # russian_text
+                        'context': row[2] if row[2] else '',  # russian_text
+                        'is_learned': bool(row[3]) if len(row) > 3 else False,  # is_learned
+                        'total_progress_score': row[4] if len(row) > 4 and row[4] else 0.0  # total_progress_score
                     }
                     phrases.append(phrase)
                 
@@ -534,6 +683,71 @@ class DatabaseManager:
             logger.error(f"[ERROR][get_all_phrases] Ошибка получения фраз: {e}")
             raise
     # endregion FUNCTION get_all_phrases
+    
+    # region FUNCTION get_learned_phrases_stats
+    # CONTRACT
+    # Args:
+    #   - None
+    # Returns:
+    #   - Dict: Статистика изученных фраз
+    # Side Effects:
+    #   - Нет
+    # Raises:
+    #   - sqlite3.Error: при ошибках запроса к БД
+    # Tests:
+    #   - БД содержит изученные фразы: возвращает статистику
+    #   - БД не содержит изученных фраз: возвращает нули
+    
+    def get_learned_phrases_stats(self) -> Dict:
+        """
+        Получает статистику изученных фраз.
+        
+        Returns:
+            Словарь со статистикой изучения
+        """
+        logger.info("[START_FUNCTION][get_learned_phrases_stats] Получение статистики изученных фраз")
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Получаем общую статистику
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total_phrases,
+                        SUM(CASE WHEN is_learned = 1 THEN 1 ELSE 0 END) as learned_phrases,
+                        SUM(CASE WHEN is_learned = 0 THEN 1 ELSE 0 END) as active_phrases,
+                        AVG(CASE WHEN is_learned = 1 THEN total_progress_score ELSE NULL END) as avg_learned_score
+                    FROM phrases 
+                    WHERE is_active = 1
+                """)
+                
+                result = cursor.fetchone()
+                
+                if result:
+                    stats = {
+                        'total_phrases': result[0] or 0,
+                        'learned_phrases': result[1] or 0,
+                        'active_phrases': result[2] or 0,
+                        'avg_learned_score': round(result[3] or 0, 2),
+                        'learning_percentage': round((result[1] or 0) / (result[0] or 1) * 100, 1) if result[0] else 0
+                    }
+                else:
+                    stats = {
+                        'total_phrases': 0,
+                        'learned_phrases': 0,
+                        'active_phrases': 0,
+                        'avg_learned_score': 0.0,
+                        'learning_percentage': 0.0
+                    }
+                
+                logger.info(f"[END_FUNCTION][get_learned_phrases_stats] Статистика: {stats}")
+                return stats
+                
+        except sqlite3.Error as e:
+            logger.error(f"[ERROR][get_learned_phrases_stats] Ошибка получения статистики: {e}")
+            raise
+    # endregion FUNCTION get_learned_phrases_stats
     
     def close(self):
         """Закрывает соединение с базой данных."""

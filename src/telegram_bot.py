@@ -24,6 +24,7 @@
     - save_user_answer(phrase_id, user_answer, ai_score): Сохраняет ответ пользователя и оценку AI.
     - auto_send_phrase(user_id): Автоматически отправляет случайную фразу пользователю.
     - auto_sync_google_sheets(): Автоматически синхронизирует фразы с Google Sheets.
+    - stats_command(message): Показывает статистику изучения фраз.
     - start_auto_send_task(bot): Запускает фоновую задачу автоматических задач.
     - _get_score_emoji(score): Возвращает эмодзи в зависимости от оценки.
 
@@ -58,6 +59,12 @@ from src.database import DatabaseManager
 from src.ai_analysis import AIAnalyzer
 from src.google_sync import GoogleSheetsSync
 from config.config import TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, GOOGLE_SHEETS_CREDENTIALS_FILE, GOOGLE_SHEETS_SPREADSHEET_ID
+
+# Отладочная информация
+print(f"[DEBUG] GOOGLE_SHEETS_CREDENTIALS_FILE: {GOOGLE_SHEETS_CREDENTIALS_FILE}")
+print(f"[DEBUG] GOOGLE_SHEETS_SPREADSHEET_ID: {GOOGLE_SHEETS_SPREADSHEET_ID}")
+print(f"[DEBUG] TELEGRAM_BOT_TOKEN: {TELEGRAM_BOT_TOKEN}")
+print(f"[DEBUG] OPENAI_API_KEY: {OPENAI_API_KEY}")
 # endregion
 
 # region Константы
@@ -67,7 +74,8 @@ BOT_COMMANDS = [
     ("phrase", "Получить новую фразу для изучения"),
     ("reverse", "Получить русскую фразу для перевода на английский"),
     ("sync", "Синхронизировать фразы с Google Sheets"),
-    ("auto", "Включить/выключить автоматическую отправку фраз")
+    ("auto", "Включить/выключить автоматическую отправку фраз"),
+    ("stats", "Показать статистику изучения")
 ]
 
 # Настройки автоматической отправки
@@ -114,6 +122,11 @@ HELP_MESSAGE = """
 • **Синхронизация:** каждые 6 часов бот обновляет фразы из Google Sheets
 • **Уведомления:** бот сообщает о новых фразах автоматически
 • **Чередование:** английские и русские фразы для разнообразия
+
+📊 **Команды управления:**
+• `/stats` - показать статистику изучения
+• `/sync` - обновить фразы из Google Sheets
+• `/auto` - включить/выключить автоматическую отправку
 
 🎯 Цель: выучить как можно больше фраз и улучшить свой английский!
 """
@@ -431,6 +444,55 @@ class EnglishLearningBot:
     
     # endregion FUNCTION auto_command
     
+    # region FUNCTION stats_command
+    # CONTRACT
+    # Args:
+    #   - message: Сообщение от пользователя
+    # Returns:
+    #   - None
+    # Side Effects:
+    #   - Отправляет статистику изучения пользователю
+    # Raises:
+    #   - None
+    # Tests:
+    #   - Команда /stats: должен показать статистику изучения
+    
+    async def stats_command(self, message: Message) -> None:
+        """Обрабатывает команду /stats - показывает статистику изучения."""
+        user_id = message.from_user.id
+        self.logger.info(f"[START_FUNCTION][stats_command] Команда /stats от пользователя {user_id}")
+        
+        try:
+            # Получаем статистику изученных фраз
+            stats = self.database.get_learned_phrases_stats()
+            
+            # Формируем сообщение со статистикой
+            stats_message = f"""📊 **Статистика изучения английского языка**
+
+📚 **Общая информация:**
+• Всего фраз в базе: {stats['total_phrases']}
+• Изучено фраз: {stats['learned_phrases']} ✅
+• Активно изучается: {stats['active_phrases']} 📖
+
+📈 **Прогресс:**
+• Процент изучения: **{stats['learning_percentage']}%**
+• Средний балл изученных: {stats['avg_learned_score']}
+
+🎯 **Цель:** достичь 100% изучения всех фраз!
+
+💡 **Совет:** используйте команды /phrase и /reverse для регулярной практики."""
+            
+            await message.answer(stats_message, parse_mode='Markdown')
+            
+            self.logger.info(f"[END_FUNCTION][stats_command] Статистика отправлена пользователю {user_id}")
+            
+        except Exception as e:
+            error_message = "❌ Ошибка при получении статистики. Попробуйте позже."
+            await message.answer(error_message)
+            self.logger.error(f"[ERROR][stats_command] Ошибка получения статистики: {e}")
+    
+    # endregion FUNCTION stats_command
+    
     # region FUNCTION handle_answer
     # CONTRACT
     # Args:
@@ -584,12 +646,85 @@ class EnglishLearningBot:
             if is_learned:
                 self.logger.info(f"[INFO][save_user_answer] Фраза {phrase_id} выучена!")
             
+            # Обновляем прогресс изучения фразы
+            try:
+                from config.config import LEARNED_SCORE_THRESHOLD
+                
+                # ПРОГРЕСС ОБНОВЛЯЕТСЯ В _update_google_sheets_progress
+                # Убираем дублирующий вызов update_phrase_progress
+                # became_learned = self.database.update_phrase_progress(phrase_id, ai_score)
+                
+                # Проверяем, стала ли фраза изученной (после обновления в Google Sheets)
+                # Это будет сделано в _update_google_sheets_progress
+                
+            except Exception as e:
+                self.logger.error(f"[ERROR][save_user_answer] Ошибка обновления прогресса фразы: {e}")
+            
+            # 🔄 НОВАЯ ФУНКЦИЯ: Записываем балл в Google Sheets в реальном времени
+            try:
+                self._update_google_sheets_progress(phrase_id, ai_score)
+                self.logger.info(f"[INFO][save_user_answer] Балл {ai_score} записан в Google Sheets для фразы {phrase_id}")
+            except Exception as e:
+                self.logger.error(f"[ERROR][save_user_answer] Ошибка записи в Google Sheets: {e}")
+            
             self.logger.info(f"[END_FUNCTION][save_user_answer] Ответ пользователя для фразы {phrase_id} сохранен")
             
         except Exception as e:
             self.logger.error(f"[ERROR][save_user_answer] Ошибка при сохранении ответа: {e}")
     
     # endregion FUNCTION save_user_answer
+    
+    # region FUNCTION _update_google_sheets_progress
+    # CONTRACT
+    # Args:
+    #   - phrase_id: ID фразы для обновления
+    #   - ai_score: Балл AI (от 0.0 до 1.0)
+    # Returns:
+    #   - None
+    # Side Effects:
+    #   - Обновляет столбец Progress в Google Sheets
+    # Raises:
+    #   - Exception: при ошибке работы с Google Sheets
+    # Tests:
+    #   - phrase_id валидный, ai_score корректный: должен обновить Google Sheets
+    
+    def _update_google_sheets_progress(self, phrase_id: int, ai_score: float) -> None:
+        """Обновляет прогресс фразы в Google Sheets в реальном времени."""
+        try:
+            # Импортируем Google Sync только при необходимости
+            from src.google_sync import GoogleSheetsSync
+            from config.config import GOOGLE_SHEETS_CREDENTIALS_FILE, GOOGLE_SHEETS_SPREADSHEET_ID
+            
+            # Создаем экземпляр синхронизации с учетными данными
+            google_sync = GoogleSheetsSync(
+                credentials_path=GOOGLE_SHEETS_CREDENTIALS_FILE,
+                spreadsheet_id=GOOGLE_SHEETS_SPREADSHEET_ID
+            )
+            
+            # Получаем текущий прогресс фразы из БД
+            current_progress = self.database.get_phrase_progress(phrase_id)
+            
+            # Добавляем новый балл к текущему прогрессу
+            new_total_progress = current_progress + ai_score
+            
+            # ОБНОВЛЯЕМ ЛОКАЛЬНУЮ БД (вместо дублирующего вызова выше)
+            became_learned = self.database.update_phrase_progress(phrase_id, ai_score)
+            
+            if became_learned:
+                self.logger.info(f"[INFO][_update_google_sheets_progress] Фраза {phrase_id} достигла порога изучения!")
+            
+            # Обновляем Google Sheets
+            google_sync.update_phrase_progress_in_sheets(phrase_id, new_total_progress)
+            
+            self.logger.info(f"[INFO][_update_google_sheets_progress] Google Sheets обновлен: фраза {phrase_id}, прогресс: {new_total_progress}")
+            
+        except ImportError:
+            self.logger.warning("[WARNING][_update_google_sheets_progress] Google Sheets API недоступен")
+        except Exception as e:
+            self.logger.error(f"[ERROR][_update_google_sheets_progress] Ошибка обновления Google Sheets: {e}")
+            raise e
+    
+    # endregion FUNCTION _update_google_sheets_progress
     
     # region FUNCTION _get_score_emoji
     # CONTRACT
@@ -745,14 +880,14 @@ class EnglishLearningBot:
             
             # Получаем статус до синхронизации
             status_before = sync.get_sync_status()
-            phrases_before = status_before['database_count']
+            phrases_before = status_before.get('database_count', 0)  # Безопасное получение значения
             
             # Выполняем синхронизацию
             result = sync.full_sync()
             
             # Получаем статус после синхронизации
             status_after = sync.get_sync_status()
-            phrases_after = status_after['database_count']
+            phrases_after = status_after.get('database_count', 0)  # Безопасное получение значения
             
             # Обновляем время последней синхронизации
             self.last_auto_sync = datetime.now()
@@ -825,11 +960,11 @@ class EnglishLearningBot:
         # Запускаем фоновую задачу в отдельном цикле событий
         try:
             loop = asyncio.get_event_loop()
-            self.auto_send_task = loop.create_task(auto_send_loop())
+            self.auto_send_task = loop.create_task(auto_tasks_loop())
             self.logger.info("[INFO][start_auto_send_task] Задача автоматической отправки запущена")
         except RuntimeError:
             # Если цикл событий не запущен, создаем новый
-            self.auto_send_task = asyncio.create_task(auto_send_loop())
+            self.auto_send_task = asyncio.create_task(auto_tasks_loop())
             self.logger.info("[INFO][start_auto_send_task] Задача автоматической отправки запущена в новом цикле")
     
     # endregion FUNCTION start_auto_send_task
@@ -858,6 +993,7 @@ class EnglishLearningBot:
         dp.message.register(self.reverse_command, Command("reverse")) # Регистрируем обработчик для команды /reverse
         dp.message.register(self.sync_command, Command("sync")) # Регистрируем обработчик для команды /sync
         dp.message.register(self.auto_command, Command("auto")) # Регистрируем обработчик для команды /auto
+        dp.message.register(self.stats_command, Command("stats")) # Регистрируем обработчик для команды /stats
         
         # Регистрируем обработчик текстовых сообщений (ответы пользователя)
         dp.message.register(self.handle_answer, F.text)

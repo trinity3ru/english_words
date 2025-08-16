@@ -22,7 +22,7 @@ load_dotenv()
 
 # region Константы проекта
 PROJECT_ROOT = Path(__file__).parent.parent
-DATABASE_PATH = PROJECT_ROOT / "database.db"
+DATABASE_PATH = PROJECT_ROOT / "english_learning.db"
 LOGS_PATH = PROJECT_ROOT / "logs"
 # endregion
 
@@ -40,7 +40,7 @@ OPENAI_MAX_TOKENS = 1000
 # region Настройки Google Sheets
 GOOGLE_SHEETS_CREDENTIALS_FILE = os.getenv("GOOGLE_SHEETS_CREDENTIALS_FILE")
 GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
-GOOGLE_SHEETS_RANGE = "english!A:E"  # Диапазон с данными
+GOOGLE_SHEETS_RANGE = "english!A:E"  # Диапазон с данными (A-D: фразы, E: Progress)
 # endregion
 
 # region Настройки базы данных
@@ -64,6 +64,10 @@ SCORE_LEVELS = {
     0.7: "почти правильно",
     1: "правильно"
 }
+
+# Настройки прогресса изучения
+LEARNED_SCORE_THRESHOLD = 3.0  # Балл для считания фразы изученной
+PROGRESS_COLUMN_INDEX = 4  # Индекс столбца Progress в Google Sheets (E = 4)
 
 # Пороговые значения для нормализации score
 SCORE_THRESHOLDS = {
