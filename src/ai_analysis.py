@@ -95,8 +95,8 @@ class AIAnalyzer:
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Низкая температура для более консистентных результатов
-                max_tokens=300
+                temperature=0.1,  # Более стабильная и мягкая оценка
+                max_tokens=500
             )
             
             # Парсим ответ
@@ -152,8 +152,8 @@ class AIAnalyzer:
                     {"role": "system", "content": self._get_reverse_system_prompt()},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Низкая температура для более консистентных результатов
-                max_tokens=300
+                temperature=0.1,  # Более стабильная и мягкая оценка
+                max_tokens=500
             )
             
             # Парсим ответ
@@ -211,7 +211,11 @@ class AIAnalyzer:
     "score": число (0, 0.3, 0.5, 0.7 или 1),
     "feedback": "подробный комментарий о понимании смысла",
     "confidence": число от 0 до 1,
-    "suggestions": ["предложение 1", "предложение 2"]
+    "suggestions": ["предложение 1", "предложение 2"],
+    "alternatives": ["2-3 альтернативных формулировки исходной фразы на целевом языке"],
+    "usage_examples": ["1-2 коротких примера использования этой фразы в предложениях (целевой язык)"],
+    "mini_dialogue": ["2-4 реплики простого диалога с использованием фразы (целевой язык)"],
+    "note": "краткая заметка по употреблению, коллокациям или типичным ошибкам"
 }
 """
         return prompt
@@ -261,7 +265,11 @@ class AIAnalyzer:
     "score": число (0, 0.3, 0.5, 0.7 или 1),
     "feedback": "подробный комментарий о понимании смысла",
     "confidence": число от 0 до 1,
-    "suggestions": ["предложение 1", "предложение 2"]
+    "suggestions": ["предложение 1", "предложение 2"],
+    "alternatives": ["2-3 альтернативных способа выразить мысль (англ.)"],
+    "usage_examples": ["1-2 коротких примера на англ."],
+    "mini_dialogue": ["2-4 реплики на англ."],
+    "note": "краткая заметка по употреблению"
 }
 """
         return prompt
@@ -283,6 +291,9 @@ class AIAnalyzer:
 - Небольшие грамматические неточности
 - Стилистические различия
 - Порядок слов (если смысл сохранен)
+- Использование корректных синонимов и естественных перефразировок
+
+Если основной смысл полностью сохранён — ставь 1.0 даже при мелких грамматических/пунктуационных отклонениях.
 
 Используй 5-уровневую систему оценки, фокусируясь на понимании смысла.
 Будь справедливым: если смысл понят правильно, ставь высокий балл.
@@ -305,6 +316,9 @@ class AIAnalyzer:
 - Небольшие грамматические неточности
 - Стилистические различия
 - Порядок слов (если смысл сохранен)
+- Использование корректных синонимов и естественных перефразировок
+
+Если основной смысл полностью сохранён — ставь 1.0 даже при мелких грамматических/пунктуационных отклонениях.
 
 Используй 5-уровневую систему оценки, фокусируясь на понимании смысла.
 Будь справедливым: если смысл понят правильно, ставь высокий балл.
@@ -337,7 +351,11 @@ class AIAnalyzer:
                     'score': normalized_score,
                     'feedback': result.get('feedback', 'Комментарий не предоставлен'),
                     'confidence': result.get('confidence', 0.8),
-                    'suggestions': result.get('suggestions', [])
+                    'suggestions': result.get('suggestions', []),
+                    'alternatives': result.get('alternatives', [])[:3],
+                    'usage_examples': result.get('usage_examples', [])[:2],
+                    'mini_dialogue': result.get('mini_dialogue', [])[:4],
+                    'note': result.get('note', '').strip()
                 }
             else:
                 raise ValueError("JSON не найден в ответе")
@@ -400,7 +418,11 @@ class AIAnalyzer:
             'score': score,
             'feedback': feedback,
             'confidence': 0.6,
-            'suggestions': ['Проверьте правильность перевода']
+            'suggestions': ['Проверьте правильность перевода'],
+            'alternatives': [],
+            'usage_examples': [],
+            'mini_dialogue': [],
+            'note': ''
         }
     
     def _get_fallback_reverse_analysis(self, user_answer: str, correct_answer: str) -> Dict[str, any]:
@@ -423,7 +445,11 @@ class AIAnalyzer:
             'score': score,
             'feedback': feedback,
             'confidence': 0.6,
-            'suggestions': ['Проверьте правильность перевода']
+            'suggestions': ['Проверьте правильность перевода'],
+            'alternatives': [],
+            'usage_examples': [],
+            'mini_dialogue': [],
+            'note': ''
         }
     
     def get_learning_suggestions(self, phrase_difficulty: str, user_level: str) -> list:
@@ -456,7 +482,7 @@ class AIAnalyzer:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
-                max_tokens=200
+                max_tokens=500
             )
             
             suggestions = response.choices[0].message.content.strip().split('\n')

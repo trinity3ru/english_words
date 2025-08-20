@@ -551,18 +551,47 @@ class EnglishLearningBot:
             # Формируем сообщение с результатом
             score_emoji = self._get_score_emoji(ai_score['score'])
             score_feedback = ai_score.get('feedback', 'Комментарий не предоставлен')
+
+            # Правильный вариант (если ответ не идеален)
+            correct_variant = None
+            if ai_score.get('score', 0.0) < 1.0:
+                if exercise_type == 'translate_to_english':
+                    correct_variant = english_phrase
+                else:
+                    correct_variant = russian_translation
+
+            # Доп. материалы от AI
+            alternatives = ai_score.get('alternatives', [])[:3]
+            usage_examples = ai_score.get('usage_examples', [])[:2]
+            mini_dialogue = ai_score.get('mini_dialogue', [])[:4]
+            note = ai_score.get('note', '').strip()
+            suggestions = ai_score.get('suggestions', [])
             
             # Определяем команду для следующего упражнения
             next_command = "/reverse" if exercise_type == 'translate_to_russian' else "/phrase"
             next_command_text = "русской фразы" if exercise_type == 'translate_to_russian' else "английской фразы"
             
-            result_message = f"""{score_emoji} **Результат анализа:**
-
-📝 **Ваш ответ:** {user_answer}
-🎯 **Оценка:** {ai_score['score']:.1f}/1.0
-💡 **Комментарий:** {score_feedback}
-
-🔁 Используйте {next_command} для получения новой {next_command_text}!"""
+            # Сборка сообщения
+            parts = []
+            parts.append(f"{score_emoji} **Результат анализа:**\n\n📝 **Ваш ответ:** {user_answer}\n🎯 **Оценка:** {ai_score['score']:.1f}/1.0\n💡 **Комментарий:** {score_feedback}")
+            if correct_variant:
+                parts.append(f"✅ **Правильный вариант:** {correct_variant}")
+            if alternatives:
+                alt_block = "\n".join([f"- {a}" for a in alternatives])
+                parts.append(f"🔄 **Как ещё можно сказать:**\n{alt_block}")
+            if usage_examples:
+                ex_block = "\n".join([f"- {e}" for e in usage_examples])
+                parts.append(f"✍️ **Примеры использования:**\n{ex_block}")
+            if mini_dialogue:
+                dlg_block = "\n".join([f"- {d}" for d in mini_dialogue])
+                parts.append(f"🗣 **Мини-диалог:**\n{dlg_block}")
+            if note:
+                parts.append(f"ℹ️ **Заметка:** {note}")
+            if suggestions:
+                sug_block = "\n".join([f"- {s}" for s in suggestions])
+                parts.append(f"🧩 **Подсказки:**\n{sug_block}")
+            parts.append(f"\n🔁 Используйте {next_command} для получения новой {next_command_text}!")
+            result_message = "\n\n".join(parts)
             
             await message.answer(result_message, parse_mode='Markdown')
             

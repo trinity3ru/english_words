@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    container_name: english-words-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - GOOGLE_SHEETS_CREDENTIALS_FILE=/app/credentials.json
+    volumes:
+      - ./english_learning.db:/app/english_learning.db
+      - ./python-datalens-f6500fa9f949.json:/app/credentials.json:ro
+    command: ["uv", "run", "-m", "src.telegram_bot"]
+
