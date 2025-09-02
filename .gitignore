@@ -80,7 +80,7 @@ config/local.py
 config/production.py
 secrets.json
 credentials.json
-
+*-datalens-*.json
 # Системные файлы
 .DS_Store
 .DS_Store?

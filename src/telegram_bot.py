@@ -75,7 +75,8 @@ BOT_COMMANDS = [
     ("reverse", "Получить русскую фразу для перевода на английский"),
     ("sync", "Синхронизировать фразы с Google Sheets"),
     ("auto", "Включить/выключить автоматическую отправку фраз"),
-    ("stats", "Показать статистику изучения")
+    ("stats", "Показать статистику изучения"),
+    ("interval", "Изменить интервал авто-отправки (часы)")
 ]
 
 # Настройки автоматической отправки
@@ -108,6 +109,7 @@ HELP_MESSAGE = """
 /reverse - Получить русскую фразу для перевода на английский
 /sync - Синхронизировать фразы с Google Sheets
 /auto - Включить/выключить автоматическую отправку фраз
+/interval - Показать или задать интервал авто-отправки (в часах)
 
 💡 Как это работает:
 1. Используйте /sync для загрузки фраз из Google Sheets
@@ -261,7 +263,7 @@ class EnglishLearningBot:
         # Формируем сообщение с фразой
         message_text = f"🇬🇧 **Новая фраза для изучения:**\n\n{english_phrase}\n\n💡 **Переведите эту фразу на русский язык**"
         
-        await message.answer(message_text, parse_mode='Markdown')
+        await message.answer(message_text)
         
         self.logger.info(f"[END_FUNCTION][phrase_command] Фраза {phrase_id} отправлена пользователю {user_id}")
     
@@ -308,7 +310,7 @@ class EnglishLearningBot:
         # Формируем сообщение с русской фразой
         message_text = f"🇷🇺 **Переведите на английский язык:**\n\n{russian_translation}\n\n💡 **Напишите перевод на английском языке**"
         
-        await message.answer(message_text, parse_mode='Markdown')
+        await message.answer(message_text)
         
         self.logger.info(f"[END_FUNCTION][reverse_command] Русская фраза {phrase_id} отправлена пользователю {user_id}")
     
@@ -425,9 +427,10 @@ class EnglishLearningBot:
         
         # Формируем сообщение
         if self.auto_send_enabled:
+            current_hours = int(self.auto_send_interval.total_seconds() // 3600)
             message_text = f"""🔄 **Автоматическая отправка {status}!**
 
-⏰ **Интервал:** каждые {AUTO_SEND_INTERVAL_HOURS} часов
+⏰ **Интервал:** каждые {current_hours} часов
 📅 **Следующая отправка:** {next_send.strftime('%d.%m.%Y в %H:%M') if isinstance(next_send, datetime) else next_send}
 
 💡 Бот будет случайно отправлять фразы для регулярной практики.
@@ -443,6 +446,76 @@ class EnglishLearningBot:
         self.logger.info(f"[END_FUNCTION][auto_command] Автоматическая отправка {status} для пользователя {user_id}")
     
     # endregion FUNCTION auto_command
+
+    # region FUNCTION interval_command
+    # CONTRACT
+    # Args:
+    #   - message: Сообщение от пользователя с командой /interval [часы?].
+    # Returns:
+    #   - None
+    # Side Effects:
+    #   - Обновляет self.auto_send_interval и сообщает текущее/новое значение.
+    # Raises:
+    #   - None
+    # Tests:
+    #   - "/interval": показать текущий интервал.
+    #   - "/interval 12": установить 12 часов, показать следующую отправку.
+    #   - "/interval 0"/"/interval abc": вернуть сообщение об ошибке.
+
+    async def interval_command(self, message: Message) -> None:
+        """Показывает или устанавливает интервал авто-отправки в часах."""
+        self.logger.info(f"[START_FUNCTION][interval_command] Команда /interval от пользователя {message.from_user.id}")
+
+        text = message.text.strip() if message.text else "/interval"
+        parts = text.split(maxsplit=1)
+
+        if len(parts) == 1:
+            # Показать текущее значение
+            current_hours = int(self.auto_send_interval.total_seconds() // 3600)
+            await message.answer(
+                f"⏰ Текущий интервал авто-отправки: {current_hours} часов.\n"
+                f"Изменить: используйте `/interval <часы>`, например `/interval 12`.",
+                parse_mode='Markdown'
+            )
+            self.logger.info(f"[END_FUNCTION][interval_command] Показан текущий интервал: {current_hours} ч")
+            return
+
+        # Установка нового значения
+        arg = parts[1].strip()
+        try:
+            new_hours = int(arg)
+        except ValueError:
+            await message.answer("❌ Неверный формат. Укажите целое число часов, например: `/interval 12`.", parse_mode='Markdown')
+            self.logger.warning(f"[WARNING][interval_command] Невалидный аргумент: {arg}")
+            return
+
+        if new_hours < 1 or new_hours > 168:
+            await message.answer("❌ Интервал должен быть от 1 до 168 часов.", parse_mode='Markdown')
+            self.logger.warning(f"[WARNING][interval_command] Часы вне диапазона: {new_hours}")
+            return
+
+        # Применяем новое значение
+        self.auto_send_interval = timedelta(hours=new_hours)
+
+        # Определяем следующую отправку
+        user_id = message.from_user.id
+        if self.auto_send_enabled:
+            if user_id not in self.last_auto_send:
+                next_send_text = "включите авто-отправку командой /auto"
+            else:
+                next_send_time = self.last_auto_send[user_id] + self.auto_send_interval
+                next_send_text = next_send_time.strftime('%d.%m.%Y в %H:%M')
+        else:
+            next_send_text = "авто-отправка отключена (/auto)"
+
+        await message.answer(
+            f"✅ Интервал авто-отправки установлен: {new_hours} часов.\n"
+            f"📅 Следующая отправка: {next_send_text}",
+            parse_mode='Markdown'
+        )
+
+        self.logger.info(f"[END_FUNCTION][interval_command] Установлен интервал: {new_hours} ч")
+    # endregion FUNCTION interval_command
     
     # region FUNCTION stats_command
     # CONTRACT
@@ -1023,6 +1096,7 @@ class EnglishLearningBot:
         dp.message.register(self.sync_command, Command("sync")) # Регистрируем обработчик для команды /sync
         dp.message.register(self.auto_command, Command("auto")) # Регистрируем обработчик для команды /auto
         dp.message.register(self.stats_command, Command("stats")) # Регистрируем обработчик для команды /stats
+        dp.message.register(self.interval_command, Command("interval")) # Регистрируем обработчик для команды /interval
         
         # Регистрируем обработчик текстовых сообщений (ответы пользователя)
         dp.message.register(self.handle_answer, F.text)

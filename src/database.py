@@ -87,8 +87,15 @@ class DatabaseManager:
         logger.info("[START_FUNCTION][create_tables] Создание таблиц БД")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
+                # Включаем WAL для снижения блокировок при одновременных чтениях/записях
+                try:
+                    cursor.execute("PRAGMA journal_mode=WAL;")
+                    cursor.execute("PRAGMA synchronous=NORMAL;")
+                    cursor.execute("PRAGMA busy_timeout=10000;")
+                except Exception:
+                    pass
                 
                 # Таблица фраз
                 cursor.execute("""
@@ -186,7 +193,7 @@ class DatabaseManager:
         logger.info(f"[START_FUNCTION][add_phrase] Добавление фразы: {english_text[:30]}...")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
@@ -235,7 +242,7 @@ class DatabaseManager:
         logger.info(f"[START_FUNCTION][get_random_phrase] Поиск фразы для пользователя {user_id}")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 
                 # Получаем фразы, которые пользователь еще не выучил
@@ -298,7 +305,7 @@ class DatabaseManager:
         logger.info(f"[START_FUNCTION][update_progress] Обновление прогресса: user={user_id}, phrase={phrase_id}, score={ai_score}")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 
                 # Добавляем запись в историю ответов
@@ -378,7 +385,7 @@ class DatabaseManager:
         logger.info(f"[START_FUNCTION][update_phrase_progress] Обновление прогресса фразы {phrase_id}, балл: {score}")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 
                 # Получаем текущий прогресс
@@ -454,7 +461,7 @@ class DatabaseManager:
         logger.info(f"[START_FUNCTION][get_phrase_progress] Получение прогресса фразы {phrase_id}")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
@@ -506,7 +513,7 @@ class DatabaseManager:
         logger.info(f"[START_FUNCTION][get_statistics] Получение статистики для пользователя {user_id}")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 
                 # Общая статистика
@@ -577,7 +584,7 @@ class DatabaseManager:
         logger.info(f"[START_FUNCTION][get_learning_progress] Получение прогресса: user={user_id}, phrase={phrase_id}")
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
