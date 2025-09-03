@@ -633,6 +633,14 @@ class EnglishLearningBot:
                 else:
                     correct_variant = russian_translation
 
+            # Детальный анализ ошибок
+            error_analysis = ai_score.get('error_analysis', {})
+            meaning_errors = error_analysis.get('meaning_errors', [])
+            lexical_errors = error_analysis.get('lexical_errors', [])
+            grammar_errors = error_analysis.get('grammar_errors', [])
+            punctuation_errors = error_analysis.get('punctuation_errors', [])
+            style_differences = error_analysis.get('style_differences', [])
+
             # Доп. материалы от AI
             alternatives = ai_score.get('alternatives', [])[:3]
             usage_examples = ai_score.get('usage_examples', [])[:2]
@@ -647,6 +655,31 @@ class EnglishLearningBot:
             # Сборка сообщения
             parts = []
             parts.append(f"{score_emoji} **Результат анализа:**\n\n📝 **Ваш ответ:** {user_answer}\n🎯 **Оценка:** {ai_score['score']:.1f}/1.0\n💡 **Комментарий:** {score_feedback}")
+            
+            # Детальный анализ ошибок (только если есть ошибки)
+            if any([meaning_errors, lexical_errors, grammar_errors, punctuation_errors, style_differences]):
+                parts.append("🔍 **Детальный анализ ошибок:**")
+                
+                if meaning_errors:
+                    meaning_block = "\n".join([f"- {e}" for e in meaning_errors])
+                    parts.append(f"🎯 **Смысловые ошибки:**\n{meaning_block}")
+                
+                if lexical_errors:
+                    lexical_block = "\n".join([f"- {e}" for e in lexical_errors])
+                    parts.append(f"📚 **Лексические ошибки:**\n{lexical_block}")
+                
+                if grammar_errors:
+                    grammar_block = "\n".join([f"- {e}" for e in grammar_errors])
+                    parts.append(f"📝 **Грамматические ошибки:**\n{grammar_block}")
+                
+                if punctuation_errors:
+                    punct_block = "\n".join([f"- {e}" for e in punctuation_errors])
+                    parts.append(f"✏️ **Пунктуационные ошибки:**\n{punct_block}")
+                
+                if style_differences:
+                    style_block = "\n".join([f"- {e}" for e in style_differences])
+                    parts.append(f"🎨 **Стилистические отличия:**\n{style_block}")
+            
             if correct_variant:
                 parts.append(f"✅ **Правильный вариант:** {correct_variant}")
             if alternatives:
@@ -849,12 +882,16 @@ class EnglishLearningBot:
         """Возвращает эмодзи в зависимости от оценки AI."""
         if score == 0.0:
             return "❌"
-        elif score <= 0.3:
+        elif score <= 0.2:
+            return "😞"
+        elif score <= 0.4:
             return "😐"
-        elif score <= 0.5:
+        elif score <= 0.6:
             return "🙂"
-        elif score <= 0.7:
+        elif score <= 0.8:
             return "😊"
+        elif score <= 0.9:
+            return "😄"
         else:
             return "🎉"
     
