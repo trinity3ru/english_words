@@ -15,8 +15,8 @@ if (-not (Test-Path ".env")) {
 }
 
 # Проверяем наличие credentials.json
-if (-not (Test-Path "python-datalens-f6500fa9f949.json")) {
-    Write-Host "⚠️  Файл python-datalens-f6500fa9f949.json не найден!" -ForegroundColor Yellow
+if (-not (Test-Path "zerocoder-438112-b270bcc4038a.json")) {
+    Write-Host "⚠️  Файл zerocoder-438112-b270bcc4038a.json не найден!" -ForegroundColor Yellow
     Write-Host "Убедитесь, что файл с учетными данными Google Sheets находится в корне проекта" -ForegroundColor Yellow
 }
 

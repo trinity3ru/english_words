@@ -9,7 +9,7 @@ services:
       - GOOGLE_SHEETS_CREDENTIALS_FILE=/app/credentials.json
     volumes:
       - ./english_learning.db:/app/english_learning.db
-      - ./python-datalens-f6500fa9f949.json:/app/credentials.json:ro
+      - ./zerocoder-438112-b270bcc4038a.json:/app/credentials.json:ro
       - ./logs:/app/logs
     command: ["python", "-m", "src.telegram_bot"]
 

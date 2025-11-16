@@ -4,7 +4,7 @@
 
 1. **Docker Desktop** установлен и запущен
 2. **Файл .env** создан и заполнен (на основе `env_example.txt`)
-3. **Файл credentials.json** для Google Sheets API (уже есть: `python-datalens-f6500fa9f949.json`)
+3. **Файл credentials.json** для Google Sheets API (уже есть: `zerocoder-438112-b270bcc4038a.json`)
 
 ## Быстрый запуск
 
@@ -93,7 +93,7 @@ docker exec -it english-words-bot bash
 ## Структура volumes
 
 - `./english_learning.db` → `/app/english_learning.db` - база данных SQLite
-- `./python-datalens-f6500fa9f949.json` → `/app/credentials.json` - учетные данные Google Sheets
+- `./zerocoder-438112-b270bcc4038a.json` → `/app/credentials.json` - учетные данные Google Sheets
 - `./logs` → `/app/logs` - директория с логами
 
 ## Проверка работы
@@ -118,8 +118,9 @@ docker-compose ps
 - Проверьте, что все переменные заполнены
 
 ### Ошибка с credentials.json
-- Убедитесь, что файл `python-datalens-f6500fa9f949.json` существует
+- Убедитесь, что файл `zerocoder-438112-b270bcc4038a.json` существует
 - Проверьте путь в `docker-compose.yml`
+- Если файл не найден, скопируйте его на сервер
 
 ### Пересборка образа
 ```powershell
