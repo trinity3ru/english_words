@@ -20,6 +20,7 @@ import logging
 from typing import Dict, Optional, Tuple
 from datetime import datetime
 from dotenv import load_dotenv
+from openai import OpenAI
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -79,7 +80,8 @@ class AIAnalyzer:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY не найден в переменных окружения")
         
-        # Не используем старый способ openai.api_key (для совместимости с новым API)
+        # Создаем клиент OpenAI один раз при инициализации
+        self.client = OpenAI(api_key=self.api_key)
         self.model = "gpt-3.5-turbo"  # Можно изменить на более продвинутую модель
         
         logger.info("AI анализатор инициализирован")
@@ -116,11 +118,8 @@ class AIAnalyzer:
                 context
             )
             
-            # Отправляем запрос к OpenAI (новый синтаксис для API 1.x)
-            from openai import OpenAI
-            client = OpenAI(api_key=self.api_key)
-            
-            response = client.chat.completions.create(
+            # Отправляем запрос к OpenAI (используем клиент из __init__)
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
@@ -173,11 +172,8 @@ class AIAnalyzer:
                 context
             )
             
-            # Отправляем запрос к OpenAI (новый синтаксис для API 1.x)
-            from openai import OpenAI
-            client = OpenAI(api_key=self.api_key)
-            
-            response = client.chat.completions.create(
+            # Отправляем запрос к OpenAI (используем клиент из __init__)
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self._get_reverse_system_prompt()},
@@ -709,11 +705,8 @@ class AIAnalyzer:
 Формат: простой список рекомендаций на русском языке.
 """
             
-            # Используем новый синтаксис OpenAI API 1.x
-            from openai import OpenAI
-            client = OpenAI(api_key=self.api_key)
-            
-            response = client.chat.completions.create(
+            # Используем клиент из __init__
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "Ты - опытный преподаватель английского языка."},
@@ -758,11 +751,8 @@ class AIAnalyzer:
     def test_connection(self) -> bool:
         """Тестирует подключение к OpenAI API."""
         try:
-            # Используем новый синтаксис OpenAI API 1.x
-            from openai import OpenAI
-            client = OpenAI(api_key=self.api_key)
-            
-            response = client.chat.completions.create(
+            # Используем клиент из __init__
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "Hello"}],
                 max_tokens=5
