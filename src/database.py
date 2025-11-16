@@ -28,9 +28,10 @@
 
 import sqlite3
 import logging
+import math
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 import random
 
 # region Константы

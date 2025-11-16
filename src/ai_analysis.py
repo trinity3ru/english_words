@@ -80,7 +80,7 @@ class AIAnalyzer:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY не найден в переменных окружения")
         
-        openai.api_key = self.api_key
+        # Не используем старый способ openai.api_key (для совместимости с новым API)
         self.model = "gpt-3.5-turbo"  # Можно изменить на более продвинутую модель
         
         logger.info("AI анализатор инициализирован")
