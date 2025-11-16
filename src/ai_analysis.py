@@ -17,7 +17,6 @@
 
 import os
 import logging
-import openai
 from typing import Dict, Optional, Tuple
 from datetime import datetime
 from dotenv import load_dotenv
