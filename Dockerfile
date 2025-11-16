@@ -6,11 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Устанавливаем зависимости
+# Устанавливаем зависимости (этот слой кэшируется если requirements.txt не изменился)
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем проект
+# Копируем проект (этот слой пересобирается только при изменении кода)
 COPY . .
 
 # Переменная по умолчанию (можно переопределить через docker run / compose)
