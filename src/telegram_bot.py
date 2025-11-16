@@ -727,11 +727,33 @@ class EnglishLearningBot:
     #   - База данных недоступна: должен вернуть None.
     
     def get_random_phrase(self) -> Optional[Tuple[int, str, str]]:
-        """Получает случайную фразу из базы данных."""
-        self.logger.info("[START_FUNCTION][get_random_phrase] Получение случайной фразы из базы данных")
+        """
+        Получает случайную фразу из базы данных с учетом приоритета новых фраз.
+        
+        Новые фразы (недавно добавленные) имеют больший приоритет,
+        но старые фразы тоже показываются для повторения.
+        """
+        self.logger.info("[START_FUNCTION][get_random_phrase] Получение взвешенной случайной фразы из базы данных")
         
         try:
-            # Получаем все фразы из базы данных
+            # Используем взвешенный выбор с приоритетом новых фраз
+            # user_id = 1 (для одного пользователя)
+            user_id = 1
+            
+            # Пробуем использовать взвешенный выбор
+            result = self.database.get_weighted_random_phrase(
+                user_id=user_id,
+                new_phrase_priority=3.0,  # Новые фразы в 3 раза чаще
+                decay_days=30  # Приоритет затухает за 30 дней
+            )
+            
+            if result:
+                phrase_id, english_phrase, russian_translation = result
+                self.logger.info(f"[END_FUNCTION][get_random_phrase] Получена взвешенная фраза {phrase_id}: {english_phrase}")
+                return phrase_id, english_phrase, russian_translation
+            
+            # Fallback: если взвешенный выбор не сработал, используем обычный
+            self.logger.warning("[WARNING][get_random_phrase] Взвешенный выбор не дал результата, используем обычный")
             phrases = self.database.get_all_phrases()
             
             if not phrases:
@@ -742,9 +764,9 @@ class EnglishLearningBot:
             random_phrase = random.choice(phrases)
             phrase_id = random_phrase['id']
             english_phrase = random_phrase['phrase']  # english_text
-            russian_translation = random_phrase.get('context', '')  # пока что пустой контекст
+            russian_translation = random_phrase.get('context', '')  # russian_text
             
-            self.logger.info(f"[END_FUNCTION][get_random_phrase] Получена фраза {phrase_id}: {english_phrase}")
+            self.logger.info(f"[END_FUNCTION][get_random_phrase] Получена случайная фраза {phrase_id}: {english_phrase}")
             return phrase_id, english_phrase, russian_translation
             
         except Exception as e:

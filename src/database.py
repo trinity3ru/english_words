@@ -656,7 +656,7 @@ class DatabaseManager:
                 if include_learned:
                     # Получаем все фразы, включая изученные
                     cursor.execute("""
-                        SELECT id, english_text, russian_text, is_learned, total_progress_score
+                        SELECT id, english_text, russian_text, is_learned, total_progress_score, date_added
                         FROM phrases
                         WHERE is_active = 1
                         ORDER BY id
@@ -664,7 +664,7 @@ class DatabaseManager:
                 else:
                     # Получаем только не изученные фразы
                     cursor.execute("""
-                        SELECT id, english_text, russian_text, is_learned, total_progress_score
+                        SELECT id, english_text, russian_text, is_learned, total_progress_score, date_added
                         FROM phrases
                         WHERE is_active = 1 AND is_learned = 0
                         ORDER BY id
@@ -679,7 +679,8 @@ class DatabaseManager:
                         'phrase': row[1],  # english_text
                         'context': row[2] if row[2] else '',  # russian_text
                         'is_learned': bool(row[3]) if len(row) > 3 else False,  # is_learned
-                        'total_progress_score': row[4] if len(row) > 4 and row[4] else 0.0  # total_progress_score
+                        'total_progress_score': row[4] if len(row) > 4 and row[4] else 0.0,  # total_progress_score
+                        'date_added': row[5] if len(row) > 5 else None  # date_added
                     }
                     phrases.append(phrase)
                 
@@ -690,6 +691,137 @@ class DatabaseManager:
             logger.error(f"[ERROR][get_all_phrases] Ошибка получения фраз: {e}")
             raise
     # endregion FUNCTION get_all_phrases
+    
+    # region FUNCTION get_weighted_random_phrase
+    # CONTRACT
+    # Args:
+    #   - user_id: ID пользователя
+    #   - new_phrase_priority: Приоритет новых фраз (1.0-10.0, по умолчанию 3.0)
+    #   - decay_days: Количество дней для затухания приоритета (по умолчанию 30)
+    # Returns:
+    #   - Optional[Tuple]: (phrase_id, english_text, russian_text) или None
+    # Side Effects:
+    #   - Нет
+    # Raises:
+    #   - sqlite3.Error: при ошибках запроса к БД
+    # Tests:
+    #   - user_id=1: возвращает фразу с учетом приоритета новых
+    #   - user_id=1 (все фразы выучены): возвращает None
+    
+    def get_weighted_random_phrase(
+        self, 
+        user_id: int, 
+        new_phrase_priority: float = 3.0,
+        decay_days: int = 30
+    ) -> Optional[Tuple[int, str, str]]:
+        """
+        Получает случайную фразу с учетом приоритета новых фраз.
+        
+        Новые фразы (недавно добавленные) имеют больший приоритет,
+        но старые фразы тоже показываются для повторения.
+        
+        Args:
+            user_id: ID пользователя
+            new_phrase_priority: Множитель приоритета для новых фраз (1.0-10.0)
+            decay_days: Количество дней для затухания приоритета (чем больше, тем дольше новые фразы имеют приоритет)
+            
+        Returns:
+            Кортеж (phrase_id, english_text, russian_text) или None
+        """
+        logger.info(f"[START_FUNCTION][get_weighted_random_phrase] Поиск взвешенной фразы для пользователя {user_id}")
+        
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                
+                # Получаем все не изученные фразы с датой добавления
+                cursor.execute("""
+                    SELECT p.id, p.english_text, p.russian_text, p.date_added
+                    FROM phrases p
+                    LEFT JOIN user_progress up ON p.id = up.phrase_id AND up.user_id = ?
+                    WHERE p.is_active = 1
+                    AND p.is_learned = 0
+                    AND (up.status IS NULL OR up.status != 'learned')
+                    AND (up.current_score IS NULL OR up.current_score < ?)
+                """, (user_id, MAX_SCORE))
+                
+                results = cursor.fetchall()
+                
+                if not results:
+                    logger.info(f"[END_FUNCTION][get_weighted_random_phrase] Фразы для изучения не найдены")
+                    return None
+                
+                # Вычисляем веса для каждой фразы на основе даты добавления
+                now = datetime.now()
+                phrases_with_weights = []
+                
+                for row in results:
+                    phrase_id, english_text, russian_text, date_added_str = row
+                    
+                    # Парсим дату добавления
+                    if date_added_str:
+                        try:
+                            # Пробуем разные форматы даты
+                            if isinstance(date_added_str, str):
+                                # SQLite формат: YYYY-MM-DD HH:MM:SS
+                                date_added = datetime.strptime(date_added_str.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                            else:
+                                date_added = datetime.fromisoformat(str(date_added_str))
+                        except (ValueError, AttributeError):
+                            # Если не удалось распарсить, считаем фразу новой
+                            date_added = now
+                    else:
+                        # Если даты нет, считаем фразу новой
+                        date_added = now
+                    
+                    # Вычисляем возраст фразы в днях
+                    age_days = (now - date_added).total_seconds() / 86400  # секунды в день
+                    
+                    # Вычисляем вес: новые фразы имеют больший вес
+                    # Используем экспоненциальное затухание: weight = new_phrase_priority * exp(-age_days / decay_days)
+                    # Минимальный вес = 1.0 (чтобы старые фразы тоже показывались)
+                    weight = max(1.0, new_phrase_priority * math.exp(-age_days / decay_days))
+                    
+                    phrases_with_weights.append({
+                        'phrase_id': phrase_id,
+                        'english_text': english_text,
+                        'russian_text': russian_text,
+                        'weight': weight,
+                        'age_days': age_days
+                    })
+                
+                # Выбираем фразу с учетом весов (взвешенная случайная выборка)
+                total_weight = sum(p['weight'] for p in phrases_with_weights)
+                
+                if total_weight == 0:
+                    # Если все веса нулевые, выбираем случайно
+                    selected = random.choice(phrases_with_weights)
+                else:
+                    # Взвешенная случайная выборка
+                    random_value = random.uniform(0, total_weight)
+                    cumulative_weight = 0
+                    
+                    for phrase in phrases_with_weights:
+                        cumulative_weight += phrase['weight']
+                        if random_value <= cumulative_weight:
+                            selected = phrase
+                            break
+                    else:
+                        # Fallback на последнюю фразу
+                        selected = phrases_with_weights[-1]
+                
+                logger.info(f"[END_FUNCTION][get_weighted_random_phrase] Выбрана фраза ID: {selected['phrase_id']}, возраст: {selected['age_days']:.1f} дней, вес: {selected['weight']:.2f}")
+                return selected['phrase_id'], selected['english_text'], selected['russian_text']
+                
+        except sqlite3.Error as e:
+            logger.error(f"[ERROR][get_weighted_random_phrase] Ошибка получения фразы: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"[ERROR][get_weighted_random_phrase] Неожиданная ошибка: {e}")
+            # Fallback на обычный случайный выбор
+            return self.get_random_phrase(user_id)
+    
+    # endregion FUNCTION get_weighted_random_phrase
     
     # region FUNCTION get_learned_phrases_stats
     # CONTRACT

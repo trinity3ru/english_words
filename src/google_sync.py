@@ -166,10 +166,11 @@ class GoogleSheetsSync:
                     updated_count += 1
                     logger.debug(f"Обновлена фраза: {english_text}")
                 else:
-                    # Добавляем новую фразу напрямую в БД
-                    phrase_id = self._add_phrase_to_db(english_text, russian_text, difficulty)
+                    # Добавляем новую фразу напрямую в БД с датой из Google Sheets
+                    date_added = phrase_data.get('date')
+                    phrase_id = self._add_phrase_to_db(english_text, russian_text, difficulty, date_added)
                     added_count += 1
-                    logger.debug(f"Добавлена новая фраза (ID: {phrase_id}): {english_text}")
+                    logger.debug(f"Добавлена новая фраза (ID: {phrase_id}): {english_text}, дата: {date_added}")
                 
                 # Обновляем прогресс фразы из Google Sheets
                 if phrase_data.get('progress_score', 0) > 0:
@@ -484,7 +485,7 @@ class GoogleSheetsSync:
             logger.error(f"Ошибка обновления прогресса фразы {phrase_id}: {e}")
             raise
     
-    def _add_phrase_to_db(self, english_text: str, russian_text: str, difficulty: str) -> int:
+    def _add_phrase_to_db(self, english_text: str, russian_text: str, difficulty: str, date_added: str = None) -> int:
         """
         Добавляет новую фразу в базу данных.
         
@@ -492,6 +493,7 @@ class GoogleSheetsSync:
             english_text: Английский текст
             russian_text: Русский перевод
             difficulty: Сложность
+            date_added: Дата добавления из Google Sheets (опционально)
             
         Returns:
             ID добавленной фразы
@@ -502,10 +504,59 @@ class GoogleSheetsSync:
             
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO phrases (english_text, russian_text, difficulty, total_progress_score, is_learned)
-                    VALUES (?, ?, ?, 0.0, 0)
-                """, (english_text, russian_text, difficulty))
+                
+                if date_added:
+                    # Парсим дату из Google Sheets и добавляем с указанной датой
+                    try:
+                        # Пробуем разные форматы даты из Google Sheets
+                        from datetime import datetime
+                        if isinstance(date_added, str):
+                            # Пробуем разные форматы
+                            date_formats = [
+                                '%Y-%m-%d',
+                                '%d.%m.%Y',
+                                '%d/%m/%Y',
+                                '%Y-%m-%d %H:%M:%S',
+                                '%d.%m.%Y %H:%M:%S'
+                            ]
+                            parsed_date = None
+                            for fmt in date_formats:
+                                try:
+                                    parsed_date = datetime.strptime(date_added.strip(), fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            
+                            if parsed_date:
+                                cursor.execute("""
+                                    INSERT INTO phrases (english_text, russian_text, difficulty, total_progress_score, is_learned, date_added)
+                                    VALUES (?, ?, ?, 0.0, 0, ?)
+                                """, (english_text, russian_text, difficulty, parsed_date.strftime('%Y-%m-%d %H:%M:%S')))
+                            else:
+                                # Если не удалось распарсить, используем текущую дату
+                                cursor.execute("""
+                                    INSERT INTO phrases (english_text, russian_text, difficulty, total_progress_score, is_learned)
+                                    VALUES (?, ?, ?, 0.0, 0)
+                                """, (english_text, russian_text, difficulty))
+                        else:
+                            # Если не строка, используем текущую дату
+                            cursor.execute("""
+                                INSERT INTO phrases (english_text, russian_text, difficulty, total_progress_score, is_learned)
+                                VALUES (?, ?, ?, 0.0, 0)
+                            """, (english_text, russian_text, difficulty))
+                    except Exception as e:
+                        logger.warning(f"Не удалось распарсить дату '{date_added}', используем текущую дату: {e}")
+                        cursor.execute("""
+                            INSERT INTO phrases (english_text, russian_text, difficulty, total_progress_score, is_learned)
+                            VALUES (?, ?, ?, 0.0, 0)
+                        """, (english_text, russian_text, difficulty))
+                else:
+                    # Если дата не указана, используем текущую дату (по умолчанию)
+                    cursor.execute("""
+                        INSERT INTO phrases (english_text, russian_text, difficulty, total_progress_score, is_learned)
+                        VALUES (?, ?, ?, 0.0, 0)
+                    """, (english_text, russian_text, difficulty))
+                
                 conn.commit()
                 return cursor.lastrowid
                 
