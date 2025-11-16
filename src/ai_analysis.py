@@ -81,7 +81,15 @@ class AIAnalyzer:
             raise ValueError("OPENAI_API_KEY не найден в переменных окружения")
         
         # Создаем клиент OpenAI один раз при инициализации
-        self.client = OpenAI(api_key=self.api_key)
+        # Используем только api_key, без других параметров для совместимости
+        try:
+            self.client = OpenAI(api_key=self.api_key)
+        except TypeError as e:
+            # Fallback для старых версий API
+            logger.warning(f"Ошибка создания OpenAI клиента: {e}, пробуем альтернативный способ")
+            import openai as openai_module
+            openai_module.api_key = self.api_key
+            self.client = None  # Будем создавать клиент при каждом запросе
         self.model = "gpt-3.5-turbo"  # Можно изменить на более продвинутую модель
         
         logger.info("AI анализатор инициализирован")
@@ -119,6 +127,10 @@ class AIAnalyzer:
             )
             
             # Отправляем запрос к OpenAI (используем клиент из __init__)
+            # Если клиент не создан, создаем его здесь
+            if self.client is None:
+                self.client = OpenAI(api_key=self.api_key)
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -173,6 +185,10 @@ class AIAnalyzer:
             )
             
             # Отправляем запрос к OpenAI (используем клиент из __init__)
+            # Если клиент не создан, создаем его здесь
+            if self.client is None:
+                self.client = OpenAI(api_key=self.api_key)
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -706,6 +722,10 @@ class AIAnalyzer:
 """
             
             # Используем клиент из __init__
+            # Если клиент не создан, создаем его здесь
+            if self.client is None:
+                self.client = OpenAI(api_key=self.api_key)
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -752,6 +772,10 @@ class AIAnalyzer:
         """Тестирует подключение к OpenAI API."""
         try:
             # Используем клиент из __init__
+            # Если клиент не создан, создаем его здесь
+            if self.client is None:
+                self.client = OpenAI(api_key=self.api_key)
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "Hello"}],

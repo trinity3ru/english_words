@@ -4,7 +4,7 @@
 aiogram>=3.0.0
 
 # OpenAI API для анализа ответов
-openai==1.12.0
+openai>=1.40.0
 
 # Google Sheets API
 google-auth==2.23.4
