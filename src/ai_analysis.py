@@ -82,14 +82,8 @@ class AIAnalyzer:
         
         # Создаем клиент OpenAI один раз при инициализации
         # Используем только api_key, без других параметров для совместимости
-        try:
-            self.client = OpenAI(api_key=self.api_key)
-        except TypeError as e:
-            # Fallback для старых версий API
-            logger.warning(f"Ошибка создания OpenAI клиента: {e}, пробуем альтернативный способ")
-            import openai as openai_module
-            openai_module.api_key = self.api_key
-            self.client = None  # Будем создавать клиент при каждом запросе
+        # Откладываем создание клиента до первого использования (lazy initialization)
+        self.client = None  # Будем создавать клиент при первом запросе
         self.model = "gpt-3.5-turbo"  # Можно изменить на более продвинутую модель
         
         logger.info("AI анализатор инициализирован")
@@ -126,10 +120,14 @@ class AIAnalyzer:
                 context
             )
             
-            # Отправляем запрос к OpenAI (используем клиент из __init__)
-            # Если клиент не создан, создаем его здесь
+            # Отправляем запрос к OpenAI (lazy initialization клиента)
+            # Создаем клиент при первом использовании для избежания проблем с инициализацией
             if self.client is None:
-                self.client = OpenAI(api_key=self.api_key)
+                try:
+                    self.client = OpenAI(api_key=self.api_key)
+                except Exception as e:
+                    logger.error(f"Ошибка создания OpenAI клиента: {e}")
+                    raise
             
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -184,10 +182,14 @@ class AIAnalyzer:
                 context
             )
             
-            # Отправляем запрос к OpenAI (используем клиент из __init__)
-            # Если клиент не создан, создаем его здесь
+            # Отправляем запрос к OpenAI (lazy initialization клиента)
+            # Создаем клиент при первом использовании для избежания проблем с инициализацией
             if self.client is None:
-                self.client = OpenAI(api_key=self.api_key)
+                try:
+                    self.client = OpenAI(api_key=self.api_key)
+                except Exception as e:
+                    logger.error(f"Ошибка создания OpenAI клиента: {e}")
+                    raise
             
             response = self.client.chat.completions.create(
                 model=self.model,
