@@ -33,7 +33,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+
+# Credentials files
+zerocoder-*.json
+python-datalens-*.json
 
 # Виртуальные окружения
 .env

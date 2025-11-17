@@ -152,6 +152,19 @@ class DatabaseManager:
                     )
                 """)
                 
+                # Таблица для хранения ожидаемых ответов (состояние пользователей)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_expected_answers (
+                        user_id INTEGER PRIMARY KEY,
+                        phrase_id INTEGER NOT NULL,
+                        english_phrase TEXT NOT NULL,
+                        russian_translation TEXT NOT NULL,
+                        exercise_type TEXT DEFAULT 'translate_to_russian',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (phrase_id) REFERENCES phrases (id)
+                    )
+                """)
+                
                 conn.commit()
                 logger.info("[END_FUNCTION][create_tables] Таблицы созданы успешно")
                 
@@ -885,9 +898,84 @@ class DatabaseManager:
                 return stats
                 
         except sqlite3.Error as e:
-            logger.error(f"[ERROR][get_learned_phrases_stats] Ошибка получения статистики: {e}")
-            raise
+                logger.error(f"[ERROR][get_learned_phrases_stats] Ошибка получения статистики: {e}")
+                raise
     # endregion FUNCTION get_learned_phrases_stats
+    
+    # region FUNCTION save_expected_answer
+    def save_expected_answer(
+        self,
+        user_id: int,
+        phrase_id: int,
+        english_phrase: str,
+        russian_translation: str,
+        exercise_type: str = 'translate_to_russian'
+    ) -> None:
+        """Сохраняет ожидаемый ответ пользователя в БД."""
+        logger.info(f"[START_FUNCTION][save_expected_answer] Сохранение ожидаемого ответа для user_id={user_id}, phrase_id={phrase_id}")
+        
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO user_expected_answers 
+                    (user_id, phrase_id, english_phrase, russian_translation, exercise_type, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (user_id, phrase_id, english_phrase, russian_translation, exercise_type))
+                conn.commit()
+                logger.info(f"[END_FUNCTION][save_expected_answer] Ожидаемый ответ сохранен")
+        except sqlite3.Error as e:
+            logger.error(f"[ERROR][save_expected_answer] Ошибка сохранения: {e}")
+            raise
+    # endregion FUNCTION save_expected_answer
+    
+    # region FUNCTION get_expected_answer
+    def get_expected_answer(self, user_id: int) -> Optional[Dict]:
+        """Получает ожидаемый ответ пользователя из БД."""
+        logger.info(f"[START_FUNCTION][get_expected_answer] Получение ожидаемого ответа для user_id={user_id}")
+        
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT phrase_id, english_phrase, russian_translation, exercise_type
+                    FROM user_expected_answers
+                    WHERE user_id = ?
+                """, (user_id,))
+                row = cursor.fetchone()
+                
+                if row:
+                    result = {
+                        'phrase_id': row[0],
+                        'english_phrase': row[1],
+                        'russian_translation': row[2],
+                        'exercise_type': row[3]
+                    }
+                    logger.info(f"[END_FUNCTION][get_expected_answer] Найден ожидаемый ответ для user_id={user_id}")
+                    return result
+                else:
+                    logger.info(f"[END_FUNCTION][get_expected_answer] Ожидаемый ответ не найден для user_id={user_id}")
+                    return None
+        except sqlite3.Error as e:
+            logger.error(f"[ERROR][get_expected_answer] Ошибка получения: {e}")
+            return None
+    # endregion FUNCTION get_expected_answer
+    
+    # region FUNCTION delete_expected_answer
+    def delete_expected_answer(self, user_id: int) -> None:
+        """Удаляет ожидаемый ответ пользователя из БД."""
+        logger.info(f"[START_FUNCTION][delete_expected_answer] Удаление ожидаемого ответа для user_id={user_id}")
+        
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM user_expected_answers WHERE user_id = ?", (user_id,))
+                conn.commit()
+                logger.info(f"[END_FUNCTION][delete_expected_answer] Ожидаемый ответ удален")
+        except sqlite3.Error as e:
+            logger.error(f"[ERROR][delete_expected_answer] Ошибка удаления: {e}")
+            raise
+    # endregion FUNCTION delete_expected_answer
     
     def close(self):
         """Закрывает соединение с базой данных."""

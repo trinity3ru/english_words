@@ -155,10 +155,14 @@ class EnglishLearningBot:
         self.database = DatabaseManager()
         self.ai_analyzer = AIAnalyzer()
         
-        # Словарь для хранения ожидаемых ответов пользователей
+        # Словарь для хранения ожидаемых ответов пользователей (кэш)
         # user_id -> {phrase_id, english_phrase, russian_translation, exercise_type}
         # exercise_type: 'translate_to_russian' или 'translate_to_english'
+        # Состояние также сохраняется в БД для восстановления после перезапуска
         self.expected_answers = {}
+        
+        # Загружаем ожидаемые ответы из БД при старте
+        self._load_expected_answers_from_db()
         
         # Настройки автоматической отправки
         self.auto_send_enabled = AUTO_SEND_ENABLED
@@ -173,6 +177,31 @@ class EnglishLearningBot:
         self.auto_sync_task = None  # Задача автоматической синхронизации
         
         self.logger.info("[END_FUNCTION][__init__] EnglishLearningBot инициализирован")
+    
+    # region FUNCTION _load_expected_answers_from_db
+    def _load_expected_answers_from_db(self) -> None:
+        """Загружает ожидаемые ответы из БД при старте бота."""
+        self.logger.info("[START_FUNCTION][_load_expected_answers_from_db] Загрузка ожидаемых ответов из БД")
+        try:
+            # Загружаем все ожидаемые ответы из БД
+            with sqlite3.connect(self.database.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT user_id, phrase_id, english_phrase, russian_translation, exercise_type FROM user_expected_answers")
+                rows = cursor.fetchall()
+                
+                for row in rows:
+                    user_id, phrase_id, english_phrase, russian_translation, exercise_type = row
+                    self.expected_answers[user_id] = {
+                        'phrase_id': phrase_id,
+                        'english_phrase': english_phrase,
+                        'russian_translation': russian_translation,
+                        'exercise_type': exercise_type
+                    }
+                
+                self.logger.info(f"[END_FUNCTION][_load_expected_answers_from_db] Загружено {len(self.expected_answers)} ожидаемых ответов")
+        except Exception as e:
+            self.logger.error(f"[ERROR][_load_expected_answers_from_db] Ошибка загрузки: {e}")
+    # endregion FUNCTION _load_expected_answers_from_db
     
     # endregion FUNCTION __init__
     
@@ -259,6 +288,17 @@ class EnglishLearningBot:
             'russian_translation': russian_translation,
             'exercise_type': 'translate_to_russian'
         }
+        # Сохраняем в БД для восстановления после перезапуска
+        try:
+            self.database.save_expected_answer(
+                user_id=user_id,
+                phrase_id=phrase_id,
+                english_phrase=english_phrase,
+                russian_translation=russian_translation,
+                exercise_type='translate_to_russian'
+            )
+        except Exception as e:
+            self.logger.error(f"[ERROR][phrase_command] Ошибка сохранения ожидаемого ответа в БД: {e}")
         
         # Формируем сообщение с фразой
         message_text = f"🇬🇧 **Новая фраза для изучения:**\n\n{english_phrase}\n\n💡 **Переведите эту фразу на русский язык**"
@@ -306,6 +346,17 @@ class EnglishLearningBot:
             'russian_translation': russian_translation,
             'exercise_type': 'translate_to_english'
         }
+        # Сохраняем в БД для восстановления после перезапуска
+        try:
+            self.database.save_expected_answer(
+                user_id=user_id,
+                phrase_id=phrase_id,
+                english_phrase=english_phrase,
+                russian_translation=russian_translation,
+                exercise_type='translate_to_english'
+            )
+        except Exception as e:
+            self.logger.error(f"[ERROR][reverse_command] Ошибка сохранения ожидаемого ответа в БД: {e}")
         
         # Формируем сообщение с русской фразой
         message_text = f"🇷🇺 **Переведите на английский язык:**\n\n{russian_translation}\n\n💡 **Напишите перевод на английском языке**"
@@ -589,10 +640,15 @@ class EnglishLearningBot:
         self.logger.info(f"[START_FUNCTION][handle_answer] Ответ от пользователя {user_id}: {user_answer}")
         
         # Проверяем, есть ли ожидаемый ответ для этого пользователя
+        # Сначала проверяем кэш, если нет - загружаем из БД
         if user_id not in self.expected_answers:
-            await message.answer("💡 Сначала получите фразу командой /phrase или /reverse!")
-            self.logger.info(f"[INFO][handle_answer] Пользователь {user_id} пытается ответить без получения фразы")
-            return
+            expected_data = self.database.get_expected_answer(user_id)
+            if expected_data:
+                self.expected_answers[user_id] = expected_data
+            else:
+                await message.answer("💡 Сначала получите фразу командой /phrase или /reverse!")
+                self.logger.info(f"[INFO][handle_answer] Пользователь {user_id} пытается ответить без получения фразы")
+                return
         
         # Получаем данные о фразе
         expected_data = self.expected_answers[user_id]
@@ -1185,13 +1241,23 @@ async def create_and_run_bot() -> None:
         # Запускаем автоматическую отправку фраз
         english_bot.start_auto_send_task(bot)
         
-        # Запускаем бота
-        await dp.start_polling(bot)
+        # Запускаем бота с обработкой исключений для предотвращения падений
+        try:
+            await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+        except KeyboardInterrupt:
+            logging.info("[INFO][create_and_run_bot] Бот остановлен пользователем")
+        except Exception as e:
+            logging.error(f"[ERROR][create_and_run_bot] Критическая ошибка в polling: {e}")
+            import traceback
+            logging.error(f"[ERROR][create_and_run_bot] Traceback: {traceback.format_exc()}")
+            raise
         
         logging.info("[END_FUNCTION][create_and_run_bot] Бот успешно запущен")
         
     except Exception as e:
         logging.error(f"[ERROR][create_and_run_bot] Ошибка запуска бота: {e}")
+        import traceback
+        logging.error(f"[ERROR][create_and_run_bot] Traceback: {traceback.format_exc()}")
         raise
 
 # endregion Функция создания и запуска бота

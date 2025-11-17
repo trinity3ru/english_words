@@ -12,4 +12,7 @@ services:
       - ./zerocoder-438112-b270bcc4038a.json:/app/credentials.json:ro
       - ./logs:/app/logs
     command: ["python", "-m", "src.telegram_bot"]
+    # Ограничения ресурсов для предотвращения OOM kill (exit code 137)
+    mem_limit: 512m
+    mem_reservation: 256m
 
