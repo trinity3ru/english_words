@@ -757,8 +757,13 @@ class EnglishLearningBot:
             
             await message.answer(result_message, parse_mode='Markdown')
             
-            # Очищаем ожидаемый ответ
-            del self.expected_answers[user_id]
+            # Очищаем ожидаемый ответ (из кэша и БД)
+            if user_id in self.expected_answers:
+                del self.expected_answers[user_id]
+            try:
+                self.database.delete_expected_answer(user_id)
+            except Exception as e:
+                self.logger.error(f"[ERROR][handle_answer] Ошибка удаления ожидаемого ответа из БД: {e}")
             
             self.logger.info(f"[END_FUNCTION][handle_answer] Ответ пользователя {user_id} проанализирован, оценка: {ai_score}")
             
