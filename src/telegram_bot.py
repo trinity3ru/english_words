@@ -59,6 +59,7 @@ from src.database import DatabaseManager
 from src.ai_analysis import AIAnalyzer
 from src.google_sync import GoogleSheetsSync
 from config.config import TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, GOOGLE_SHEETS_CREDENTIALS_FILE, GOOGLE_SHEETS_SPREADSHEET_ID
+import sqlite3
 
 # Отладочная информация
 print(f"[DEBUG] GOOGLE_SHEETS_CREDENTIALS_FILE: {GOOGLE_SHEETS_CREDENTIALS_FILE}")
@@ -813,22 +814,16 @@ class EnglishLearningBot:
                 self.logger.info(f"[END_FUNCTION][get_random_phrase] Получена взвешенная фраза {phrase_id}: {english_phrase}")
                 return phrase_id, english_phrase, russian_translation
             
-            # Fallback: если взвешенный выбор не сработал, используем обычный
-            self.logger.warning("[WARNING][get_random_phrase] Взвешенный выбор не дал результата, используем обычный")
-            phrases = self.database.get_all_phrases()
-            
-            if not phrases:
-                self.logger.warning("[WARNING][get_random_phrase] В базе данных нет фраз")
+            # Fallback: используем простой метод без загрузки всех фраз в память
+            self.logger.warning("[WARNING][get_random_phrase] Взвешенный выбор не дал результата, используем простой метод")
+            fallback_result = self.database.get_random_phrase(user_id=1)
+            if fallback_result:
+                phrase_id, english_phrase, russian_translation = fallback_result
+                self.logger.info(f"[END_FUNCTION][get_random_phrase] Получена фраза через fallback {phrase_id}: {english_phrase}")
+                return phrase_id, english_phrase, russian_translation
+            else:
+                self.logger.warning("[WARNING][get_random_phrase] Фразы не найдены в базе данных")
                 return None
-            
-            # Выбираем случайную фразу
-            random_phrase = random.choice(phrases)
-            phrase_id = random_phrase['id']
-            english_phrase = random_phrase['phrase']  # english_text
-            russian_translation = random_phrase.get('context', '')  # russian_text
-            
-            self.logger.info(f"[END_FUNCTION][get_random_phrase] Получена случайная фраза {phrase_id}: {english_phrase}")
-            return phrase_id, english_phrase, russian_translation
             
         except Exception as e:
             self.logger.error(f"[ERROR][get_random_phrase] Ошибка при получении фразы: {e}")
